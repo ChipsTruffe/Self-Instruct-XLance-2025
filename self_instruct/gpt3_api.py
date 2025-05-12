@@ -3,10 +3,17 @@ import tqdm
 import os
 import random
 import openai
+from openai import OpenAI
+from openai import AsyncOpenAI
+import asyncio
+
+api_key = "sk-CGMc2J1rEjWy7V5c23A33fF0055e4491963eF71d28B2AaEf"
+api_base = "https://api.xi-ai.cn/v1"
+client = AsyncOpenAI(api_key=api_key, base_url = api_base)
 from datetime import datetime
 import argparse
 import time
-    
+
 
 def make_requests(
         engine, prompts, max_tokens, temperature, top_p, 
@@ -15,28 +22,31 @@ def make_requests(
     response = None
     target_length = max_tokens
     if api_key is not None:
-        openai.api_key = api_key
-    if organization is not None:
-        openai.organization = organization
+        if organization is not None:
+            # TODO: The 'openai.organization' option isn't read in the client API. You will need to pass it when you instantiate the client, e.g. 'OpenAI(organization=organization)'
+            openai.organization = organization
     retry_cnt = 0
-    backoff_time = 30
+    backoff_time = 30 
     while retry_cnt <= retries:
         try:
-            response = openai.Completion.create(
-                engine=engine,
-                prompt=prompts,
-                max_tokens=target_length,
-                temperature=temperature,
-                top_p=top_p,
-                frequency_penalty=frequency_penalty,
-                presence_penalty=presence_penalty,
-                stop=stop_sequences,
-                logprobs=logprobs,
-                n=n,
-                best_of=best_of,
+            response = client.chat.completions.create(
+            model=engine,
+            messages = [
+                {"role": "system", "content": "You are a helpful assistant, specialized in mathematics teaching. "},
+                {"role": "user", "content": prompts}],
+            #prompt=prompts,
+            max_tokens=target_length,
+            temperature=temperature,
+            top_p=top_p,
+            frequency_penalty=frequency_penalty,
+            presence_penalty=presence_penalty,
+            stop=stop_sequences,
+            logprobs=logprobs,
+            n=n,
+            #best_of=best_of
             )
             break
-        except openai.error.OpenAIError as e:
+        except openai.OpenAIError as e:
             print(f"OpenAIError: {e}.")
             if "Please reduce your prompt" in str(e):
                 target_length = int(target_length * 0.8)
@@ -46,13 +56,13 @@ def make_requests(
                 time.sleep(backoff_time)
                 backoff_time *= 1.5
             retry_cnt += 1
-    
+
     if isinstance(prompts, list):
         results = []
         for j, prompt in enumerate(prompts):
             data = {
                 "prompt": prompt,
-                "response": {"choices": response["choices"][j * n: (j + 1) * n]} if response else None,
+                "response": {"choices": response.choices[j * n: (j + 1) * n]} if response else None,
                 "created_at": str(datetime.now()),
             }
             results.append(data)
@@ -148,7 +158,7 @@ def parse_args():
     )
     return parser.parse_args()
 
-    
+
 if __name__ == "__main__":
     random.seed(123)
     args = parse_args()
