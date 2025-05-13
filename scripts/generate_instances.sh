@@ -5,5 +5,5 @@ python self_instruct/generate_instances.py \
     --input_file machine_generated_instructions.jsonl \
     --output_file machine_generated_instances.jsonl \
     --max_instances_to_gen 5 \
-    --engine "davinci" \
+    --engine "gpt-4.1" \
     --request_batch_size 5

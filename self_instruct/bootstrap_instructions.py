@@ -11,21 +11,17 @@ from multiprocessing import Pool
 from functools import partial
 from rouge_score import rouge_scorer
 from gpt3_api import make_requests as make_gpt_requests
-
+import time 
 
 random.seed(42)
 
 
 def encode_prompt(prompt_instructions, classification=False):
     """Encode multiple prompt instructions into a single string."""
-    if classification:
-        prompt = "Come up with a series of classification tasks. Try to specify the possible output labels when possible.\n"
-    else:
-        prompt = "Come up with a series of tasks:\n"
+    prompt = ""
     for idx, instruction in enumerate(prompt_instructions):
         instruction = re.sub(r"\s+", " ", instruction).strip().rstrip(":")
-        prompt += f"{idx+1}. {instruction}\n"
-    prompt += f"{len(prompt_instructions) + 1}."
+        prompt += f"{instruction}\n"
     return prompt
 
 
@@ -39,9 +35,9 @@ def find_word_in_string(w, s):
 
 
 def post_process_gpt3_response(response):
-    if response is None or response["choices"][0].finish_reason == "length":
+    if response is None or response["choices"].finish_reason == "length":
         return []
-    raw_instructions = re.split(r"\n\d+\s?\. ", response["choices"][0].message['content'])
+    raw_instructions = re.split(r"\n\d+\s?\. ", response["choices"].message.content)
     instructions = []
     for inst in raw_instructions:
         inst = re.sub(r"\s+", " ", inst).strip()
@@ -95,6 +91,7 @@ def parse_args():
     parser.add_argument(
         "--use_clf_seed_tasks_only",
         action="store_true",
+        default = False,
         help="If specified, we will only use the classification seed tasks to prompt new instructions. This will lead to more classification instructions.",
     )
     parser.add_argument(
@@ -129,22 +126,23 @@ def parse_args():
 
 
 if __name__ == "__main__":
+    chrono = time.time()
     args = parse_args()
     seed_tasks = [json.loads(l) for l in open(args.seed_tasks_path, "r")]
     if args.use_clf_seed_tasks_only:
         seed_tasks = [t for t in seed_tasks if t["is_classification"]]
-    seed_instructions = [t["instruction"] for t in seed_tasks]
-    print(f"Loaded {len(seed_instructions)} human-written seed instructions")
+    seed_instructions = [t["question"] for t in seed_tasks]
+    print(f"Loaded {len(seed_instructions)} human-written seed instructions ") 
     
     os.makedirs(args.batch_dir, exist_ok=True)
     request_idx = 0
     # load the LM-generated instructions
     machine_instructions = []
-    if os.path.exists(os.path.join(args.batch_dir, "machine_generated_instructions.jsonl")):
-        with open(os.path.join(args.batch_dir, "machine_generated_instructions.jsonl"), "r") as fin:
+    if os.path.exists(os.path.join(args.batch_dir, "machine_generated_instructions"+args.engine+".jsonl")):
+        with open(os.path.join(args.batch_dir, "machine_generated_instructions"+args.engine+".jsonl"), "r") as fin:
             for line in fin:
                 instruction_info = json.loads(line)
-                machine_instructions.append(instruction_info["instruction"])
+                machine_instructions.append(instruction_info["question"])
                 request_idx = instruction_info["request_idx"] + 1
         print(f"Loaded {len(machine_instructions)} machine-generated instructions")
 
@@ -156,7 +154,7 @@ if __name__ == "__main__":
     if machine_instructions:
         progress_bar.update(len(machine_instructions))
 
-    with open(os.path.join(args.batch_dir, "machine_generated_instructions.jsonl"), "a") as fout:
+    with open(os.path.join(args.batch_dir, "machine_generated_instructions"+ args.engine + ".jsonl"), "a") as fout:
         while len(machine_instructions) < args.num_instructions_to_generate:
             batch_inputs = []
             for _ in range(args.request_batch_size):
@@ -168,9 +166,8 @@ if __name__ == "__main__":
                 # sample human instructions from the pool
                 prompt_instructions += random.sample(seed_instructions, args.num_prompt_instructions - len(prompt_instructions))
                 random.shuffle(prompt_instructions)
-                prompt = encode_prompt(prompt_instructions, classification=args.use_clf_seed_tasks_only)
+                prompt = encode_prompt(prompt_instructions)
                 batch_inputs.append(prompt)
-            print(batch_inputs)
             results = make_gpt_requests(
                 engine=args.engine,
                 prompts=batch_inputs,
@@ -189,11 +186,9 @@ if __name__ == "__main__":
             instructions = []
             all_metadata = []
             for result in results:
-                print(result)
                 new_instructions = post_process_gpt3_response(result['response'])
                 instructions += new_instructions
                 all_metadata += [result] * len(new_instructions)
-
             for inst, metadata in zip(instructions, all_metadata):
                 with Pool(4) as p:
                     rouge_scores = p.map(partial(scorer.score, inst), seed_instructions + machine_instructions)
@@ -207,11 +202,14 @@ if __name__ == "__main__":
                     }
                 machine_instructions.append(inst)
                 fout.write(json.dumps({
-                    "instruction": inst,
+                    "question": inst,
                     "most_similar": most_similar_instructions,
+                    "highest_similarity_score" : float(max(rouge_scores)),
                     "avg_similarity_score": float(np.mean(rouge_scores)),
-                    "metadata": metadata,
+                    #"metadata": metadata,
                     "request_idx": request_idx
                 }) + "\n")
                 progress_bar.update(1)
             request_idx += 1
+    chrono = time.time() - chrono
+    print("time elapsed to compute", args.num_instructions_to_generate, "new instructions with model", args.engine, " : ", chrono)

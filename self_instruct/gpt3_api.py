@@ -15,11 +15,29 @@ import argparse
 import time
 
 
-def make_requests(
+async def make_async_requests(
         engine, prompts, max_tokens, temperature, top_p, 
         frequency_penalty, presence_penalty, stop_sequences, logprobs, n, best_of, retries=3, api_key=None, organization=None
     ):
-    response = None
+    async def make_completion(prompt):
+        response = await client.chat.completions.create(
+                model=engine,
+                messages = [
+                    {"role": "system", "content": "You are a helpful assistant specialized in mathematics. Observe the serie of questions given as input and come up with a similar one. Only answer with the question, respecting the format. "},
+                    {"role": "user", "content": prompt}],
+                #prompt=prompts,
+                max_tokens=target_length,
+                temperature=temperature,
+                top_p=top_p,
+                frequency_penalty=frequency_penalty,
+                presence_penalty=presence_penalty,
+                stop=stop_sequences,
+                logprobs=logprobs,
+                n=n,
+                #best_of=best_of
+                )
+        return response
+    tasks = []
     target_length = max_tokens
     if api_key is not None:
         if organization is not None:
@@ -27,42 +45,31 @@ def make_requests(
             openai.organization = organization
     retry_cnt = 0
     backoff_time = 30 
-    while retry_cnt <= retries:
-        try:
-            response = client.chat.completions.create(
-            model=engine,
-            messages = [
-                {"role": "system", "content": "You are a helpful assistant, specialized in mathematics teaching. "},
-                {"role": "user", "content": prompts}],
-            #prompt=prompts,
-            max_tokens=target_length,
-            temperature=temperature,
-            top_p=top_p,
-            frequency_penalty=frequency_penalty,
-            presence_penalty=presence_penalty,
-            stop=stop_sequences,
-            logprobs=logprobs,
-            n=n,
-            #best_of=best_of
-            )
-            break
-        except openai.OpenAIError as e:
-            print(f"OpenAIError: {e}.")
-            if "Please reduce your prompt" in str(e):
-                target_length = int(target_length * 0.8)
-                print(f"Reducing target length to {target_length}, retrying...")
-            else:
-                print(f"Retrying in {backoff_time} seconds...")
-                time.sleep(backoff_time)
-                backoff_time *= 1.5
-            retry_cnt += 1
+    if not isinstance(prompts,list):
+        print("edge case to treat : single element passed as prompts (instead of list).\n Edit gpt3_api.py")
+    for prompt in prompts:  
+        while retry_cnt <= retries:
+            try:
+                tasks.append( make_completion(prompt) )
+                break
+            except openai.OpenAIError as e:
+                print(f"OpenAIError: {e}.")
+                if "Please reduce your prompt" in str(e):
+                    target_length = int(target_length * 0.8)
+                    print(f"Reducing target length to {target_length}, retrying...")
+                else:
+                    print(f"Retrying in {backoff_time} seconds...")
+                    time.sleep(backoff_time)
+                    backoff_time *= 1.5
+                retry_cnt += 1
+    response = await asyncio.gather(*tasks)
 
     if isinstance(prompts, list):
         results = []
         for j, prompt in enumerate(prompts):
             data = {
                 "prompt": prompt,
-                "response": {"choices": response.choices[j * n: (j + 1) * n]} if response else None,
+                "response": {"choices": response[j].choices[0]} if response else None,
                 "created_at": str(datetime.now()),
             }
             results.append(data)
@@ -74,6 +81,10 @@ def make_requests(
             "created_at": str(datetime.now()),
         }
         return [data]
+
+
+def make_requests(**args):
+    return asyncio.run(make_async_requests(**args))
 
 
 def parse_args():
@@ -186,7 +197,7 @@ if __name__ == "__main__":
                 for p in batch_prompts:
                     fout.write(json.dumps(existing_responses[p]) + "\n")
             else:
-                results = make_requests(
+                results = asyncio.run(make_async_requests(
                     engine=args.engine,
                     prompts=batch_prompts,
                     max_tokens=args.max_tokens,
@@ -198,6 +209,6 @@ if __name__ == "__main__":
                     logprobs=args.logprobs,
                     n=args.n,
                     best_of=args.best_of,
-                )
+                ))
                 for data in results:
                     fout.write(json.dumps(data) + "\n")
