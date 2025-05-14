@@ -1,6 +1,9 @@
 # Self-Instruct: Aligning LM with Self Generated Instructions
 
-This repository contains code and data for the [Self-Instruct paper](https://arxiv.org/abs/2212.10560), a method for aligning pretrained language models with instructions.
+This repository is an adapted version of the original [Self-Instruct paper](https://arxiv.org/abs/2212.10560) code, found in [this repository](https://github.com/yizhongw/self-instruct).
+It updates the usage of openAI API's to use async calls and applies the code to different datasets.
+
+To use it, follow the original instructions. You will also need to download gsm8k (main) as a jsonl file and put it in the data folder
 
 ## Introduction
 
