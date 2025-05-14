@@ -1,8 +1,7 @@
-batch_dir=data/gpt3_generations/
+batch_dir=data/gpt_test_generations/
 
 python self_instruct/generate_instances.py \
     --batch_dir ${batch_dir} \
-    --input_file machine_generated_instructions.jsonl \
     --output_file machine_generated_instances.jsonl \
     --max_instances_to_gen 5 \
     --engine "gpt-4.1" \

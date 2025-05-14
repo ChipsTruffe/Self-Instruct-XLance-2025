@@ -171,6 +171,7 @@ if __name__ == "__main__":
             results = make_gpt_requests(
                 engine=args.engine,
                 prompts=batch_inputs,
+                preprompt ="You are a helpful assistant specialized in mathematics. Observe the serie of questions given as input and come up with a similar one. Only answer with the question, respecting the format. ",
                 max_tokens=1024,
                 temperature=0.7,
                 top_p=0.5,

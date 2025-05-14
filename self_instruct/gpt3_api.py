@@ -17,13 +17,13 @@ import time
 
 async def make_async_requests(
         engine, prompts, max_tokens, temperature, top_p, 
-        frequency_penalty, presence_penalty, stop_sequences, logprobs, n, best_of, retries=3, api_key=None, organization=None
+        frequency_penalty, presence_penalty, stop_sequences, logprobs, n, best_of, preprompt = "You are a helpful assistant." , retries=3, api_key=None, organization=None
     ):
     async def make_completion(prompt):
         response = await client.chat.completions.create(
                 model=engine,
                 messages = [
-                    {"role": "system", "content": "You are a helpful assistant specialized in mathematics. Observe the serie of questions given as input and come up with a similar one. Only answer with the question, respecting the format. "},
+                    {"role": "system", "content": preprompt},
                     {"role": "user", "content": prompt}],
                 #prompt=prompts,
                 max_tokens=target_length,
@@ -93,6 +93,11 @@ def parse_args():
         "--input_file",
         type=str,
         help="The input file that contains the prompts to GPT3.",
+    )
+    parser.add_argument(
+        "--preprompt",
+        type = str,
+        help = "preprompt passed as system input to the models"
     )
     parser.add_argument(
         "--output_file",

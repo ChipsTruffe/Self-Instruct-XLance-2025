@@ -80,7 +80,7 @@ def parse_args():
 if __name__ == '__main__':
     args = parse_args()
 
-    with open(os.path.join(args.batch_dir, args.input_file)) as fin:
+    with open(os.path.join(args.batch_dir, "machine_generated_instructions"+ args.engine + ".jsonl" )) as fin:
         lines = fin.readlines()
         if args.num_instructions is not None:
             lines = lines[:args.num_instructions]
@@ -91,7 +91,7 @@ if __name__ == '__main__':
                 data["instruction_metadata"] = data["metadata"]
                 del data["metadata"]
             tasks.append(data)
-
+    """ Je crois que les lignes là sont inutiles
     task_clf_types = {}
     with open(os.path.join(args.batch_dir, "is_clf_or_not_davinci_template_1.jsonl")) as fin:
         for line in fin:
@@ -103,13 +103,13 @@ if __name__ == '__main__':
     
     if args.generation_tasks_only:
         tasks = [task for task in tasks if not task_clf_types[task["instruction"]]]
-
+    """
     output_path = os.path.join(args.batch_dir, args.output_file)
     existing_requests = {}
     if os.path.exists(output_path):
         with open(output_path) as fin:
             for line in tqdm.tqdm(fin):
-                try:
+                try: #inutile pour notre problème je pense mais probablement pas un souci et j'ai peur de casser le code
                     data = json.loads(line)
                     existing_requests[data["instruction"]] = data
                 except:
@@ -120,9 +120,9 @@ if __name__ == '__main__':
     with open(output_path, "w") as fout:
         for batch_idx in range(0, len(tasks), args.request_batch_size):
             batch = tasks[batch_idx: batch_idx + args.request_batch_size]
-            if all(d["instruction"] in existing_requests for d in batch):
+            if all(d["question"] in existing_requests for d in batch): #pareil, probablement inutile
                 for d in batch:
-                    data = existing_requests[d["instruction"]]
+                    data = existing_requests[d["question"]]
                     data = OrderedDict(
                         (k, data[k]) for k in \
                             ["instruction", "raw_instances", "instance_metadata", "instruction_metadata", 
@@ -131,24 +131,21 @@ if __name__ == '__main__':
                     fout.write(json.dumps(data, ensure_ascii=False) + "\n")
             else:
                 prompts = []
+                preprompt = "you are a helpful assistant, specialized in mathematics. Get a deep understanding of the problem, and solve it step by step. Finish your answer with the result alone on a line."
                 for task in batch:
-                    if task_clf_types[task["instruction"]]:
-                        prompt = output_first_template_for_clf + " " + task["instruction"].strip() + "\n"
-                        prompts.append(prompt)
-                    else:
-                        prompt = input_first_template_for_gen + " " + task["instruction"].strip() + "\n"
-                        prompts.append(prompt)
+                    prompt =task["question"].strip() + "\n"
+                    prompts.append(prompt)
                 results = make_gpt3_requests(
                     engine=args.engine,
+                    preprompt = preprompt,
                     prompts=prompts,
-                    # because the clf template is longer, we need to decrease the max_tokens
-                    max_tokens=300 if any(task_clf_types[task["instruction"]] for task in batch) else 350,
+                    max_tokens=350,
                     temperature=0,
                     top_p=0,
                     frequency_penalty=0,
                     presence_penalty=1.5,
                     stop_sequences=[f"Example {args.max_instances_to_generate + 1}", "Task:"],
-                    logprobs=1,
+                    logprobs=True,
                     n=1,
                     best_of=1,
                     api_key=args.api_key,
@@ -157,12 +154,12 @@ if __name__ == '__main__':
                     data = batch[i]
                     data["instance_metadata"] = results[i]
                     if results[i]["response"] is not None:
-                        data["raw_instances"] = results[i]["response"]["choices"][0]["text"]
+                        data["raw_instances"] = results[i]["response"]["choices"].message.content
                     else:
                         data["raw_instances"] = ""
                     data = OrderedDict(
                         (k, data[k]) for k in \
-                            ["instruction", "raw_instances", "instance_metadata", "instruction_metadata", 
+                            ["question", "raw_instances", 
                             "most_similar", "avg_similarity_score"]
                         )
                     fout.write(json.dumps(data, ensure_ascii=False) + "\n")
